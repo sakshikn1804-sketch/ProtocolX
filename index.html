@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What did I miss?</title>
+<style>
+:root{--bg:#eef1f4;--panel:#fff;--ink:#16222c;--muted:#5b6b78;--line:#d3dae0;--hi:#c8102e;--md:#c98400;--lo:#2e7d6b;--accent:#16222c;--onaccent:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#0f161c;--panel:#18222b;--ink:#e8edf1;--muted:#97a6b2;--line:#2b3946;--hi:#ff5a6e;--md:#f0b441;--lo:#5cc2a8;--accent:#e8edf1;--onaccent:#0f161c}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+h1,h2{font-family:Charter,"Iowan Old Style",Georgia,serif;margin:0}
+h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.05;letter-spacing:-.02em}
+h2{font-size:1.25rem;margin-bottom:.6rem}
+.wrap{max-width:1100px;margin:0 auto;padding:28px 18px 60px;display:grid;gap:28px;grid-template-columns:1fr}
+@media(min-width:880px){.wrap{grid-template-columns:340px 1fr}aside{position:sticky;top:20px;align-self:start}}
+.badge{display:inline-block;margin-top:10px;padding:4px 10px;border:1px solid var(--lo);color:var(--lo);border-radius:99px;font-size:.82rem}
+label{display:block;font-size:.9rem;font-weight:600;margin:14px 0 4px}
+input,textarea{width:100%;font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+textarea{height:210px;resize:vertical;font-size:.85rem}
+button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--accent);padding:9px 14px;background:var(--accent);color:var(--onaccent);font-weight:600}
+button.ghost{background:transparent;color:var(--ink);border-color:var(--line);font-weight:500}
+button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--md);outline-offset:2px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.hint{font-size:.82rem;color:var(--muted);margin-top:6px}
+.tally{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--line);margin:12px 0 6px}
+.tally i{display:block}
+.tldr{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;margin-bottom:22px}
+.tldr p{margin:.3rem 0}
+#ai{white-space:pre-wrap;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)}
+section{margin-bottom:26px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:6px solid var(--lo);border-radius:6px;padding:10px 14px;margin-bottom:8px}
+.card.high{border-left-color:var(--hi)}.card.medium{border-left-color:var(--md)}
+.meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--muted)}
+.meta b{color:var(--ink)}
+.card p{margin:.3rem 0 .2rem;overflow-wrap:anywhere}
+.tag{padding:1px 8px;border-radius:99px;border:1px solid var(--line);font-size:.75rem;color:var(--ink)}
+.tag.red{border-color:var(--hi);color:var(--hi)}.tag.amb{border-color:var(--md);color:var(--md)}
+mark{background:rgba(201,132,0,.28);color:inherit;border-radius:3px;padding:0 2px}
+.done p,.done .meta{opacity:.45;text-decoration:line-through}
+.done .chk{opacity:1;text-decoration:none}
+.chk{margin-left:auto;display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink)}
+.chk input{width:auto}
+details summary{cursor:pointer;color:var(--muted);margin-bottom:8px}
+.empty{color:var(--muted);padding:30px 0}
+@media(prefers-reduced-motion:no-preference){.tally i{transition:width .5s}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<aside>
+  <h1>What did I miss?</h1>
+  <span class="badge">Runs on your device. Nothing is uploaded.</span>
+  <label for="name">Your name (comma-separate nicknames)</label>
+  <input id="name" placeholder="e.g. Aarav, Aaru">
+  <label for="since">I last read at (optional)</label>
+  <input id="since" type="datetime-local">
+  <label for="chat">Paste a chat, or load a WhatsApp .txt export</label>
+  <textarea id="chat" placeholder="12/10/2026, 18:04 - Riya: Please submit the form by Friday"></textarea>
+  <div class="row">
+    <button id="go">Catch me up</button>
+    <button class="ghost" id="file">Load .txt</button>
+    <button class="ghost" id="demo">Try sample</button>
+    <button class="ghost" id="wipe">Clear all data</button>
+  </div>
+  <input id="fileIn" type="file" accept=".txt,text/plain" hidden>
+  <p class="hint">Dates read as day/month/year. Everything is saved only in this browser.</p>
+</aside>
+
+<main id="out"><p class="empty">Paste a chat on the left to see what needs you, what has a deadline, and what was decided.</p></main>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const DAYS = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+const MON = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+const MONRE = MON.join('|');
+let last = null; // last analysis, used by the AI button
+
+/* ---------- 1. Parse ---------- */
+const LINE = /^\[?(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4}),?\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(?:([AaPp][Mm])\b)?\]?\s*(?:-\s*)?([^:]{1,40}?):\s([\s\S]*)$/;
+const PLAIN = /^([^:]{1,30}):\s(.+)$/;
+
+function parseChat(raw) {
+  const msgs = [];
+  for (const line of raw.replace(/\u200e|\u202f/g, ' ').split(/\r?\n/)) {
+    if (!line.trim() || /end-to-end encrypted|<Media omitted>/i.test(line)) continue;
+    let m = line.match(LINE);
+    if (m) {
+      let [, a, b, y, h, mi, ap, who, text] = m;
+      let day = +a, mon = +b;
+      if (mon > 12) [day, mon] = [mon, day];
+      y = +y < 100 ? 2000 + +y : +y;
+      h = +h;
+      if (ap) h = (h % 12) + (/p/i.test(ap) ? 12 : 0);
+      msgs.push({ who: who.trim(), text, t: new Date(y, mon - 1, day, h, +mi) });
+    } else if ((m = line.match(PLAIN)) && !msgs.length || (m && !/^\s/.test(line) && !LINE.test(line) && msgs.length && msgs[msgs.length-1].t === null)) {
+      msgs.push({ who: m[1].trim(), text: m[2], t: null });
+    } else if (msgs.length) {
+      msgs[msgs.length - 1].text += '\n' + line; // multi-line message
+    }
+  }
+  return msgs;
+}
+
+/* ---------- 2. Deadlines ---------- */
+function findDeadline(text, base) {
+  const l = text.toLowerCase();
+  let d = null, m;
+  const at = (o) => { const x = new Date(base); x.setDate(x.getDate() + o); return x; };
+  if (/\b(today|tonight|eod|end of day)\b/.test(l)) d = at(0);
+  if (/\b(tomorrow|tmrw)\b/.test(l)) d = at(1);
+  if ((m = l.match(/\bin (\d+)\s*(day|week|hour|hr)s?\b/))) {
+    d = at(m[2][0] === 'w' ? m[1] * 7 : m[2][0] === 'd' ? +m[1] : 0);
+    if (/^h/.test(m[2])) d.setHours(d.getHours() + +m[1]);
+  }
+  if ((m = l.match(/\b(?:(next|this)\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/))) {
+    let diff = (DAYS.indexOf(m[2]) - base.getDay() + 7) % 7;
+    if (m[1] === 'next' && diff < 7) diff += 7;
+    d = at(diff);
+  }
+  const dm = l.match(new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONRE})[a-z]*`)) ||
+             l.match(new RegExp(`\\b(${MONRE})[a-z]*\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b`));
+  if (dm) {
+    const isNum = /^\d/.test(dm[1]);
+    const day = +(isNum ? dm[1] : dm[2]), mon = MON.indexOf(isNum ? dm[2] : dm[1]);
+    d = new Date(base.getFullYear(), mon, day);
+    if (d < new Date(base.getTime() - 30 * 864e5)) d.setFullYear(d.getFullYear() + 1);
+  } else if ((m = l.match(/\b(\d{1,2})[\/-](\d{1,2})\b(?![\/-]\d)/)) && +m[1] <= 31 && +m[2] <= 12) {
+    d = new Date(base.getFullYear(), +m[2] - 1, +m[1]);
+  }
+  if (!d) return null;
+  const tm = l.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/);
+  if (tm) d.setHours((+tm[1] % 12) + (tm[3] === 'pm' ? 12 : 0), +(tm[2] || 0), 0);
+  else d.setHours(23, 59, 0);
+  return d;
+}
+
+/* ---------- 3. Score ---------- */
+const RX = {
+  action: /\b(please|pls|plz|can you|could you|need to|have to|must|submit|send|share|bring|complete|finish|update|review|fill|register|reply|confirm|remember|don'?t forget|upload|make sure)\b/i,
+  decision: /\b(decided|decision|finali[sz]ed|final|confirmed|agreed|approved|let'?s go with|we('| a)re going with|postponed|cancel+ed|resched\w+|moved to|changed to|venue|will be held)\b/i,
+  urgent: /\b(urgent|asap|immediately|important|emergency|last date|deadline|due)\b/i,
+  everyone: /(@all|@everyone|\beveryone\b|\beverybody\b|\bguys\b|\bteam\b|\ball of you\b)/i
+};
+
+function analyse(msgs, names, since) {
+  const now = new Date();
+  const nameRx = names.length ? new RegExp(`(@?\\b(?:${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b)`, 'gi') : null;
+  const items = [];
+  msgs.forEach((m, i) => {
+    if (since && m.t && m.t < since) return;
+    const own = names.some(n => n.toLowerCase() === m.who.toLowerCase());
+    const mention = !!(nameRx && (nameRx.lastIndex = 0, nameRx.test(m.text)));
+    const group = RX.everyone.test(m.text);
+    const action = RX.action.test(m.text), decision = RX.decision.test(m.text), urgent = RX.urgent.test(m.text);
+    const dl = findDeadline(m.text, m.t || now);
+    const passed = dl && dl < now;
+    let s = 0;
+    if (mention) s += 40; else if (group) s += 12;
+    if (/\?/.test(m.text) && (mention || group)) s += 12;
+    if (action) s += 18;
+    if (decision) s += 25;
+    if (urgent) s += 25;
+    if (dl) s += passed ? 10 : (dl - now < 48 * 36e5 ? 35 : 20);
+    if (own) s = 0;
+    items.push({ i, m, mention, group, action, decision, urgent, dl, passed, score: s,
+      level: s >= 60 ? 'high' : s >= 35 ? 'medium' : 'low' });
+  });
+  return items;
+}
+
+/* ---------- 4. Render ---------- */
+const fmt = d => d ? d.toLocaleString([], { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+function card(it, nameRx) {
+  let text = esc(it.m.text);
+  if (nameRx) { nameRx.lastIndex = 0; text = text.replace(nameRx, '<mark>$1</mark>'); }
+  const tags = [];
+  if (it.mention) tags.push('<span class="tag red">mentions you</span>');
+  else if (it.group) tags.push('<span class="tag">to everyone</span>');
+  if (it.dl) tags.push(`<span class="tag ${it.passed ? '' : 'amb'}">${it.passed ? 'deadline passed' : 'due'} ${fmt(it.dl)}</span>`);
+  if (it.decision) tags.push('<span class="tag">decision</span>');
+  if (it.urgent) tags.push('<span class="tag red">urgent</span>');
+  return `<div class="card ${it.level}"><div class="meta"><b>${esc(it.m.who)}</b><span>${fmt(it.m.t)}</span>${tags.join('')}
+    <label class="chk"><input type="checkbox" onchange="this.closest('.card').classList.toggle('done',this.checked)"> done</label></div>
+    <p>${text.replace(/\n/g, '<br>')}</p></div>`;
+}
+const block = (title, arr, rx, note) => arr.length
+  ? `<section><h2>${title} <small style="color:var(--muted);font-weight:400">(${arr.length})</small></h2>${note ? `<p class="hint">${note}</p>` : ''}${arr.map(x => card(x, rx)).join('')}</section>` : '';
+
+function run() {
+  const raw = $('#chat').value.trim();
+  if (!raw) { $('#out').innerHTML = '<p class="empty">Paste a chat first.</p>'; return; }
+  const names = $('#name').value.split(',').map(s => s.trim()).filter(Boolean);
+  const since = $('#since').value ? new Date($('#since').value) : null;
+  try { localStorage.setItem('wdim', JSON.stringify({ chat: raw, name: $('#name').value, since: $('#since').value })); } catch (e) {}
+
+  const msgs = parseChat(raw);
+  const items = analyse(msgs, names, since);
+  if (!items.length) { $('#out').innerHTML = '<p class="empty">No messages found after that time, or the format was not recognised. WhatsApp exports (.txt) work best.</p>'; return; }
+  const nameRx = names.length ? new RegExp(`(@?\\b(?:${names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b)`, 'gi') : null;
+
+  const byScore = [...items].sort((a, b) => b.score - a.score);
+  const needsYou = byScore.filter(x => x.score >= 35 && (x.mention || x.action));
+  const deadlines = items.filter(x => x.dl && x.score > 0).sort((a, b) => (a.passed - b.passed) || (a.dl - b.dl));
+  const decisions = items.filter(x => x.decision && x.score > 0);
+  const shown = new Set([...needsYou, ...deadlines, ...decisions]);
+  const rest = items.filter(x => !shown.has(x));
+  const people = new Set(items.map(x => x.m.who)).size;
+  const hi = items.filter(x => x.level === 'high').length, md = items.filter(x => x.level === 'medium').length, lo = items.length - hi - md;
+  const upcoming = deadlines.filter(x => !x.passed).length;
+  const pct = n => (n / items.length * 100).toFixed(1) + '%';
+
+  last = { items, byScore, names };
+  $('#out').innerHTML = `
+  <div class="tldr">
+    <h2>${items.length} messages from ${people} ${people === 1 ? 'person' : 'people'}</h2>
+    <div class="tally" role="img" aria-label="${hi} high, ${md} medium, ${lo} low priority">
+      <i style="width:${pct(hi)};background:var(--hi)"></i><i style="width:${pct(md)};background:var(--md)"></i><i style="width:${pct(lo)};background:var(--lo)"></i></div>
+    <p class="hint">${hi} high, ${md} medium, ${lo} low priority</p>
+    <p>${items.filter(x => x.mention).length} mention${names.length ? ' you' : 's (add your name to find yours)'}, ${upcoming} upcoming deadline${upcoming === 1 ? '' : 's'}, ${deadlines.length - upcoming} passed, ${decisions.length} decision${decisions.length === 1 ? '' : 's'}.</p>
+    ${byScore.slice(0, 3).filter(x => x.score > 0).map(x => `<p>• <b>${esc(x.m.who)}:</b> ${esc(x.m.text.split('\n')[0].slice(0, 110))}</p>`).join('')}
+    <div class="row"><button class="ghost" id="aiBtn">Write an AI summary on this device</button></div>
+    <div id="ai" hidden></div>
+  </div>
+  ${block('Needs you', needsYou, nameRx)}
+  ${block('Deadlines', deadlines, nameRx, 'Passed deadlines are listed last. Check whether they were handled.')}
+  ${block('Decisions and changes', decisions, nameRx)}
+  ${rest.length ? `<details><summary>Everything else (${rest.length})</summary>${rest.map(x => card(x, nameRx)).join('')}</details>` : ''}`;
+  $('#aiBtn').onclick = aiSummary;
+}
+
+/* ---------- 5. Optional on-device AI (WebLLM, WebGPU) ---------- */
+let engine = null;
+async function aiSummary() {
+  const box = $('#ai'), btn = $('#aiBtn');
+  box.hidden = false;
+  if (!navigator.gpu) { box.textContent = 'This browser has no WebGPU, so the AI summary is unavailable. The results above are still computed locally.'; return; }
+  btn.disabled = true;
+  try {
+    if (!engine) {
+      box.textContent = 'Loading the model (first time only, about 700 MB, then cached)...';
+      const { CreateMLCEngine } = await import('https://esm.run/@mlc-ai/web-llm');
+      engine = await CreateMLCEngine('Llama-3.2-1B-Instruct-q4f16_1-MLC', { initProgressCallback: r => box.textContent = r.text });
+    }
+    box.textContent = 'Summarising...';
+    const me = last.names[0] || 'the user';
+    const pick = last.byScore.slice(0, 40).sort((a, b) => a.i - b.i)
+      .map(x => `${x.m.who}: ${x.m.text.replace(/\s+/g, ' ').slice(0, 200)}`).join('\n');
+    const r = await engine.chat.completions.create({
+      temperature: 0.2, max_tokens: 300,
+      messages: [
+        { role: 'system', content: `You summarise group chats for ${me}. Reply with 4 short bullets: what happened, decisions made, what ${me} must do, and any deadlines. Use only the messages given. Do not invent details.` },
+        { role: 'user', content: pick }]
+    });
+    box.textContent = r.choices[0].message.content;
+  } catch (e) { box.textContent = 'AI summary failed: ' + e.message; }
+  btn.disabled = false;
+}
+
+/* ---------- 6. Wiring ---------- */
+function sample() {
+  const p = n => String(n).padStart(2, '0');
+  const L = (o, h, mi, who, t) => { const x = new Date(); x.setDate(x.getDate() - o); return `${p(x.getDate())}/${p(x.getMonth() + 1)}/${x.getFullYear()}, ${h}:${mi} - ${who}: ${t}`; };
+  return [
+    L(2, '09', '12', 'Riya', 'Team, the PPT is due tomorrow 6pm. Please add your slides to the drive folder.'),
+    L(2, '09', '30', 'Karan', 'lol did anyone watch the match'),
+    L(2, '21', '05', 'Riya', '@Aarav can you finish the architecture slide by tonight?'),
+    L(1, '10', '05', 'Meera', 'Decided: we are going with the on-device model, no cloud APIs.'),
+    L(1, '10', '07', 'Karan', 'haha nice'),
+    L(1, '15', '40', 'Riya', 'URGENT venue changed to Block C, room 204. Reporting time is 9am on Saturday.'),
+    L(1, '16', '02', 'Meera', 'Aarav did you send the registration form? Last date is 5 pm today'),
+    L(0, '08', '15', 'Karan', 'ok'),
+    L(0, '08', '20', 'Riya', 'Everyone please bring laptops and chargers on Saturday')
+  ].join('\n');
+}
+$('#go').onclick = run;
+$('#demo').onclick = () => { $('#name').value = 'Aarav'; $('#chat').value = sample(); run(); };
+$('#file').onclick = () => $('#fileIn').click();
+$('#fileIn').onchange = async e => { const f = e.target.files[0]; if (f) { $('#chat').value = await f.text(); run(); } };
+$('#wipe').onclick = () => {
+  try { localStorage.removeItem('wdim'); } catch (e) {}
+  $('#chat').value = ''; $('#name').value = ''; $('#since').value = '';
+  $('#out').innerHTML = '<p class="empty">All data cleared from this browser.</p>';
+};
+try {
+  const s = JSON.parse(localStorage.getItem('wdim') || 'null');
+  if (s) { $('#chat').value = s.chat; $('#name').value = s.name; $('#since').value = s.since || ''; run(); }
+} catch (e) {}
+</script>
+</body>
+</html>
